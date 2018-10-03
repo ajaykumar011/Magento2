@@ -1,0 +1,189 @@
+# Preparation of Installation of Magento2 on Apache24 Server
+# Magento2 Does not support PHP72 till date.
+# Requirement- Apache2.4, MySQL 5.6, PHP 7.0
+
+[root@v2 ~]# cat /etc/redhat-release
+CentOS Linux release 7.5.1804 (Core)
+
+[root@v2 ~]# getenforce
+Enforcing
+[root@v2 ~]# vi /etc/selinux/config
+Selinux = disabled #Add this line to disable selinux.
+[root@v2 ~]# reboot
+
+[root@v2 ~]# yum update –y
+[root@v2 ~]# yum clean all
+[root@v2 ~]# yum install epel* -y
+[root@v2 ~]# yum update –y
+
+
+#In this example also the set the time zone..
+[root@v2 ~]# timedatectl set-timezone "Asia/Kolkata"
+[root@v2 ~]# date
+Sun Sep 30 07:49:38 IST 2018
+
+# Nginx Installation Section..
+[root@v2 ~]# yum -y install nginx
+[root@v2 ~]# systemctl start nginx
+[root@v2 ~]# systemctl enable nginx
+
+[root@v2 ~]# nginx -v
+nginx version: nginx/1.12.2
+
+Installing required PHP-FPM.. # Magento does not support php 7.2 till now
+Let’s  remove remi-repos, webtatic repo and use iuscommunity. We can use any other this repo howwerver.. But we are using ius repo in this example.
+
+[root@v2 ~]# yum remove php* -y
+[root@v2 ~]# rm -rf /etc/yum.repos.d/web*  (to remove webtatic repo)
+
+[root@v2 ~]# yum repolist #you will not find any remi repo now… We are using using webtatic here because in IUS repo we found problem with php70u-mysql.
+
+[root@v2 ~]# rpm -Uvh https://mirror.webtatic.com/yum/el7/webtatic-release.rpm
+[root@v2 ~]# yum -y update
+[root@v2 ~]# yum -y install php70u-fpm php70u-mcrypt php70u-curl php70u-cli php70u-mysql php70u-gd php70u-xsl php70u-json php70u-intl php70u-pear php70u-devel php70u-mbstring php70u-zip php70u-soap
+
+[root@v2 ~]# php-fpm --version
+PHP 7.0.32 (fpm-fcgi) (built: Sep 13 2018 16:52:22)
+Copyright (c) 1997-2017 The PHP Group
+Zend Engine v3.0.0, Copyright (c) 1998-2017 Zend Technologies
+    with Zend OPcache v7.0.32, Copyright (c) 1999-2017, by Zend Technologies
+
+[root@v2 ~]# vi /etc/php.ini
+cgi.fix_pathinfo=0
+memory_limit = 512M
+max_execution_time = 1800
+zlib.output_compression = On
+session.save_path = "/var/lib/php/session"
+error_reporting = E_COMPILE_ERROR|E_RECOVERABLE_ERROR|E_ERROR|E_CORE_ERROR
+error_log = /var/log/php/error.log
+date.timezone = Asia/Kolkata
+
+[root@v2 ~]#vim /etc/php-fpm.d/www.conf
+User = nginx
+group = nginx
+listen = /var/run/php/php-fpm.sock
+listen.owner = nginx
+listen.group = nginx
+listen.mode = 0660
+
+# Uncomment the below lines in the same file.
+env[HOSTNAME] = $HOSTNAME
+env[PATH] = /usr/local/bin:/usr/bin:/bin
+env[TMP] = /tmp
+env[TMPDIR] = /tmp
+env[TEMP] = /tmp
+
+# Create a new directory for session path.
+[root@v2 ~]# mkdir -p /var/lib/php/session/
+[root@v2 ~]# chown -R nginx:nginx /var/lib/php/session/
+
+#Create a new directory for php-fpm socket file location.
+[root@v2 ~]# mkdir -p /run/php/
+[root@v2 ~]# chown -R nginx:nginx /run/php/
+
+PHP-FPM7 configuration is complete, start the daemon now and enable it to start at boot time
+[root@v2 ~]# systemctl start php-fpm
+[root@v2 ~]# systemctl enable php-fpm
+
+[root@v2 ~]# netstat -pl | grep php-fpm.sock
+unix  2      [ ACC ]     STREAM     LISTENING     2007979  14141/php-fpm: mast  /run/php-fpm/php-fpm.sock
+
+[root@v2 ~]# yum –y remove mariadb-server mariadb (Optional)
+[root@v2 ~]# yum install wget -y
+[root@v2 ~]# wget http://dev.mysql.com/get/mysql57-community-release-el7-7.noarch.rpm -P /tmp/
+[root@v2 ~]# yum -y localinstall /tmp/mysql57-community-release-el7-7.noarch.rpm
+[root@v2 ~]# yum -y update
+[root@v2 ~]# yum -y install mysql-community-server
+
+[root@v2 ~]# systemctl start mysqld
+[root@v2 ~]# mysql --version
+mysql  Ver 14.14 Distrib 5.7.23, for Linux (x86_64) 
+[root@v2 ~]# grep 'temporary password' /var/log/mysqld.log
+
+2018-09-30T09:56:11.521268Z 1 [Note] A temporary password is generated for root@localhost: gB)+soQ:r5Rg
+
+[root@v2 ~]# mysql_secure_installation #use above root password for login
+[root@v2 ~]# mysql -u root -p
+New root pwd: Tech$3T1
+
+mysql> create database magentodb;
+mysql> create user magentouser@localhost identified by 'Magento123@';
+mysql> grant all privileges on magentodb.* to magentouser@localhost identified by 'Magento123@';
+mysql> flush privileges;
+mysql> quit; 
+
+[root@v2 ~]# echo "<?php phpinfo(); ?>" > /var/www/magento2/phpinfo.php 
+
+# Magento Install and configuration Section. For the web root directory, we will use the '/var/www/magento2' directory. We need PHP composer for the Magento package installation.
+
+[root@v2 ~]# curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/bin
+--filename=composer
+[root@v2 ~]# composer -V
+
+[root@v2 ~]# cd /var/www/
+[root@v2 ~]# yum -y install wget unzip
+[root@v2 www]# wget https://github.com/magento/magento2/archive/2.1.zip
+
+[root@v2 www]# unzip 2.1.zip
+[root@v2 www]# mv magento2-2.1 magento2
+
+# Anotehr Magento2 Direct link (no login required)
+wget https://github.com/magento/magento2/archive/2.0.tar.gz
+tar -xzvf 2.0.tar.gz
+mv magento2-2.0/ magento2/
+
+[root@v2 www]# cd magento2
+[root@v2 magento2]# composer install –v
+
+Wait for few minutes till the composer install all the required dependencies.
+
+[root@v2 magento2]# cd /etc/nginx/
+[root@v2 nginx]# vi conf.d/magento.conf
+
+
+upstream fastcgi_backend {
+        server  unix:/run/php/php-fpm.sock;
+}
+ 
+server {
+ 
+        listen 80;
+        server_name cloudocean.guru;
+        set $MAGE_ROOT /var/www/magento2;
+        set $MAGE_MODE developer;
+        include /var/www/magento2/nginx.conf.sample;
+}
+
+[root@v2 nginx]# nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+[root@v2 nginx]# systemctl restart nginx
+
+[root@v2 ~]# cd /var/www/magento2   
+
+bin/magento setup:install --backend-frontname="adminlogin" --key="biY8vdWx4w8KV5Q59380Fejy36l6ssUb" --db-host="localhost" --db-name="magentodb" --db-user="magentouser" --db-password="Magento123@" --language="en_US" --currency="USD" --timezone="Asia/Kolkata" --use-rewrites=1 --use-secure=0 --base-url="http://cloudocean.guru" --base-url-secure="https://cloudocean.guru" --admin-user=adminuser --admin-password=admin123@ --admin-email=ajkumar@cloudocean.guru --admin-firstname=admin --admin-lastname=user --cleanup-database
+
+[SUCCESS]: Magento installation complete.
+[SUCCESS]: Magento Admin URI: /adminlogin
+
+[root@v2 magento2]# chmod 700 /var/www/magento2/app/etc
+[root@v2 magento2]# chown -R nginx:nginx /var/www/magento2
+[root@v2 public_html]# systemctl restart nginx                                             
+
+(optional for FTP user creation..)
+[root@v2 ~]# cd /var/www/magento2   
+[root@v2 public_html]# useradd magento   
+[root@v2 public_html]# usermod -g nginx magento                                                               
+[root@v2 public_html]# find var vendor pub/static pub/media app/etc -type f -exec chmod g+w {} \;                                                                                         
+[root@v2 public_html]# find var vendor pub/static pub/media app/etc -type d -exec chmod g+ws {} \; 
+[root@v2 public_html]# chown -R magento:nginx .                                           
+[root@v2 public_html]# chmod u+x bin/magento                                               
+
+Now you can browse your website cloudocean.guru and admin panel with U: adminuser P: admin123@..This is the end of simple configuration of Magento on PHP7 from CLI.
+
+Now to view the log files we can use ..
+[root@v2 ~]# less +F  /var/log/nginx/access.log
+[root@v2 ~]# less +F -S '-#' 4 /var/log/nginx/access.log  (better columnar view)
+
+
+
